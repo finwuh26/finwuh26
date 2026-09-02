@@ -1,0 +1,126 @@
+name: Build Finwuh VOD 2861002790 clips
+
+on:
+  push:
+    branches: [finwuh-clips-host-2861002790]
+    paths: ['.github/workflows/build-finwuh-clips.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install media tools
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg zip
+          python -m pip install --upgrade yt-dlp
+
+      - name: Download, render and bundle clips
+        shell: bash
+        run: |
+          cat > /tmp/build_finwuh.py <<'PY'
+          import csv, glob, os, subprocess
+          from pathlib import Path
+
+          vod = 'https://www.twitch.tv/videos/2861002790'
+          clips = [
+            (1,'01_accidental_flare.mp4','00:08:40','00:09:24'),
+            (2,'02_suspect_run_over.mp4','00:09:26','00:10:28'),
+            (3,'03_wrong_way_spike_strip.mp4','00:12:07','00:12:59'),
+            (4,'04_easy_warrant_cop_chaos.mp4','00:18:22','00:19:27'),
+            (5,'05_breathalyser_cardio.mp4','00:24:32','00:25:10'),
+            (6,'06_good_fight_not_good_enough.mp4','00:29:47','00:30:38'),
+            (7,'07_dismisses_cops_by_shooting.mp4','00:33:18','00:34:25'),
+            (8,'08_first_tier_one_sub.mp4','00:35:15','00:36:29'),
+            (9,'09_wrong_neighbourhood_accidental_bark.mp4','00:36:48','00:38:06'),
+            (10,'10_partner_eye_contact_scare.mp4','00:41:52','00:43:11'),
+            (11,'11_dead_person_misgender.mp4','00:43:34','00:44:18'),
+            (12,'12_girlypop_loses_viewer.mp4','00:45:00','00:46:02'),
+            (13,'13_huge_feminist.mp4','00:46:07','00:47:00'),
+            (14,'14_cannibal_reports_himself.mp4','00:46:56','00:47:49'),
+            (15,'15_threatens_saved_victim.mp4','00:47:43','00:48:28'),
+            (16,'16_turn_him_into_chicken_wings.mp4','00:48:35','00:49:23'),
+            (17,'17_james_bond_car_theft.mp4','00:49:18','00:50:10'),
+            (18,'18_gaming_from_bed.mp4','03:03:43','03:04:23'),
+            (19,'19_gay_people_in_bed_wording.mp4','03:07:20','03:07:58.5'),
+            (20,'20_breaks_mic_during_arrest.mp4','03:08:21','03:09:22'),
+            (21,'21_bird_arms_arrest.mp4','03:09:22','03:10:26'),
+            (22,'22_first_transport_nacho_cheese.mp4','03:10:38','03:11:26'),
+            (23,'23_almost_shoots_woman.mp4','03:11:50','03:12:48'),
+            (24,'24_bad_boys_chase.mp4','03:13:21','03:14:28'),
+            (25,'25_uninvited_partner.mp4','03:16:30','03:17:44'),
+            (26,'26_animal_rights_interruption.mp4','03:18:17','03:19:07'),
+            (27,'27_dead_ladies_passenger_seat.mp4','03:19:15','03:19:43.5'),
+            (28,'28_hits_self_without_webcam.mp4','03:20:07','03:20:39'),
+            (29,'29_air_ambulance_prank.mp4','03:22:58','03:23:41'),
+            (30,'30_double_murder_aftermath.mp4','03:23:41','03:24:39'),
+            (31,'31_bought_the_shoe_shop.mp4','03:28:30','03:29:16'),
+            (32,'32_this_isnt_a_shoe_shop.mp4','03:30:40','03:31:52'),
+            (33,'33_electric_chair_chaos.mp4','03:32:38','03:33:50'),
+            (34,'34_accidentally_hits_woman.mp4','03:35:39','03:36:48'),
+            (35,'35_say_one_woman_correction.mp4','03:36:50','03:37:35'),
+            (36,'36_kills_wrong_person.mp4','03:42:55','03:43:12'),
+            (37,'37_expired_license_not_anymore.mp4','03:48:42','03:49:24'),
+            (38,'38_steals_the_ambulance.mp4','03:52:59','03:53:43'),
+          ]
+
+          def seconds(s):
+              p=[float(x) for x in s.split(':')]
+              return p[0]*3600+p[1]*60+p[2]
+
+          src = Path('/tmp/finwuh-src'); src.mkdir(exist_ok=True)
+          out = Path('Finwuh_VOD_2861002790_All_Clips'); out.mkdir(exist_ok=True)
+          manifest = out / 'Finwuh_VOD_2861002790_Clip_Manifest.csv'
+          with manifest.open('w', newline='') as f:
+              w=csv.writer(f); w.writerow(['clip_number','filename','vod_start','vod_end','duration_seconds'])
+              for n,name,start,end in clips: w.writerow([n,name,start,end,round(seconds(end)-seconds(start),1)])
+
+          vf = "[0:v]split=2[bg][fg];[bg]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,gblur=sigma=28[bg];[fg]crop='ih*4/3':ih:'(iw-ih*4/3)/2':0,scale=1080:810[fg];[bg][fg]overlay=0:555[outv]"
+
+          for n,name,start,end in clips:
+              print(f'=== Clip {n:02d}/38 {name} ===', flush=True)
+              pattern = str(src / f'{n:02d}.%(ext)s')
+              subprocess.run([
+                  'yt-dlp','--no-playlist','--concurrent-fragments','8',
+                  '-f','best[height<=1080]/best',
+                  '--download-sections',f'*{start}-{end}',
+                  '--merge-output-format','mp4','-o',pattern,vod
+              ], check=True)
+              found=[p for p in glob.glob(str(src / f'{n:02d}.*')) if not p.endswith(('.part','.ytdl'))]
+              if not found: raise RuntimeError(f'No downloaded source for clip {n}')
+              inp=found[0]
+              duration=seconds(end)-seconds(start)
+              subprocess.run([
+                  'ffmpeg','-hide_banner','-loglevel','error','-y','-i',inp,
+                  '-t',f'{duration:.3f}',
+                  '-filter_complex',vf,'-map','[outv]','-map','0:a:0?',
+                  '-c:v','libx264','-preset','veryfast','-crf','18','-r','60',
+                  '-pix_fmt','yuv420p','-c:a','aac','-b:a','160k','-ar','48000',
+                  '-movflags','+faststart','-shortest',str(out/name)
+              ], check=True)
+              os.remove(inp)
+
+          subprocess.run(['zip','-0','-r','Finwuh_VOD_2861002790_All_38_Clips.zip',str(out)], check=True)
+          PY
+          python /tmp/build_finwuh.py
+          sha256sum Finwuh_VOD_2861002790_All_38_Clips.zip > Finwuh_VOD_2861002790_All_38_Clips.sha256
+          ls -lh Finwuh_VOD_2861002790_All_38_Clips.zip
+
+      - name: Publish one-click download
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete finwuh-vod-2861002790 --cleanup-tag -y || true
+          gh release create finwuh-vod-2861002790 \
+            Finwuh_VOD_2861002790_All_38_Clips.zip \
+            Finwuh_VOD_2861002790_All_38_Clips.sha256 \
+            --target "$GITHUB_SHA" \
+            --title "Finwuh VOD 2861002790 - 38 clips" \
+            --notes "Temporary phone-friendly download bundle containing all 38 vertical clips."
